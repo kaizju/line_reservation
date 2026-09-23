@@ -18,10 +18,20 @@ JavaScript, linted with ESLint, deployable to Vercel as-is.
 5. **Queue list** (`/admin`) — a live list of today's reservations with
    status, so staff can call the next number and mark people done.
 
+## Set up Supabase (one-time)
+
+1. Create a project at [supabase.com](https://supabase.com) (free tier is fine).
+2. In the Supabase dashboard, go to **SQL Editor → New query**, paste the
+   entire contents of `supabase/schema.sql`, and run it. This creates the
+   `reservations` table plus every function the app calls.
+3. Go to **Settings → API** and copy the **Project URL** and the
+   **anon public** key.
+
 ## Run locally
 
 ```bash
 npm install
+cp .env.example .env.local   # then paste in your Supabase URL + anon key
 npm run dev
 ```
 
@@ -32,53 +42,55 @@ npm i -g vercel   # if you don't have it
 vercel
 ```
 
-Framework preset: **Vite**. `vercel.json` is already set up to rewrite all
-routes to `index.html` so `/pass/:id`, `/scan`, and `/admin` work on refresh.
+Framework preset: **Vite**. In the Vercel project's **Settings →
+Environment Variables**, add `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY` with the same values from `.env.local` (add them
+for Production, Preview, and Development), then redeploy.
+
+`vercel.json` is already set up to rewrite all routes to `index.html` so
+`/pass/:id`, `/scan`, and `/admin` work on refresh.
 
 The camera scanner requires **HTTPS** (or `localhost`) to get camera
 permission — Vercel serves HTTPS by default, so this only matters for local
 network testing on a phone.
 
-## Current data model (important limitation)
+## How the database is protected
 
-Reservations are stored in the **browser's localStorage**, not a shared
-database. That means:
-- A pass created on the applicant's phone can only be verified by a scanner
-  running in the *same browser* (or you rely on the QR payload itself,
-  which this app does — the scanner reads and verifies the QR content
-  directly, it doesn't need to "already know" the reservation).
-- The `/admin` queue list only shows reservations created *on that device*.
+The Supabase **anon key is public** — it ships inside the JS bundle, so
+anyone can read it from the browser. To keep that safe, `reservations` has
+Row Level Security turned on with **zero policies** — meaning the anon key
+cannot `SELECT`/`INSERT`/`UPDATE` the table directly, full stop. Instead,
+every operation goes through a `SECURITY DEFINER` Postgres function
+(`create_reservation`, `check_in_reservation`, etc., all in
+`supabase/schema.sql`) that does exactly one specific, safe thing — e.g.
+`check_in_reservation` will only ever flip a *matching* id+token pair from
+`pending` to `checked-in`, nothing else. Read `supabase/schema.sql` — it's
+short and every function is commented.
 
-This is fine for a single front-desk kiosk setup, but for a real multi-user
-deployment you'll want a shared backend — see below.
+## Before you launch this for real
 
-## What I'd suggest adding next
-
-- **A real backend** (Vercel Postgres/Neon, Supabase, or Firebase) so the
-  reservation form, scanner, and admin list all read/write the same data
-  instead of per-device localStorage. This is the single highest-impact
-  change — everything else builds on it.
-- **A signed QR token.** Right now the token is a simple checksum so a
-  scanner can sanity-check a pass offline. Once you have a backend, sign
-  the token server-side (HMAC or JWT) so it can't be forged, and verify it
-  against the database on scan instead of trusting the QR payload alone.
+- **`/scan` and `/admin` have no login.** Anyone with the URL can view
+  today's applicant names/phone numbers and check people in. For a real
+  deployment, add Supabase Auth (email/password or magic link) and gate
+  those two routes behind a signed-in staff session — this is the next
+  thing I'd build.
 - **Real off-device notifications.** The current notification is
   browser-only (fires on the scanning device, not the applicant's phone).
   For an actual SMS/email to the applicant, add a Vercel serverless
   function (`/api/notify`) calling a provider like Resend (email) or
   Semaphore/Twilio (SMS, since this is PH-focused) — `src/utils/notify.js`
   already has the hook point for this.
+- **Realtime instead of polling.** `/pass/:id` and `/admin` currently poll
+  every few seconds. Supabase supports realtime subscriptions on table
+  changes, which would make check-ins show up instantly and cut down on
+  requests — a natural upgrade once you're comfortable with the schema.
 - **Slot capacity limits**, so a time slot stops accepting bookings once
   it's full — right now any number of people can book the same slot.
-- **Admin authentication** for `/scan` and `/admin` — right now anyone with
-  the link can access them.
 - **Cancel / reschedule** flow for applicants, and a way to look up an
   existing pass by phone number if they lose the QR.
-- **Offline queue for scans** — if you expect spotty connectivity at the
-  venue, queue scan results locally and sync when back online.
 - **Printable pass fallback** for applicants without a smartphone (a
   printed queue slip with the same QR).
 
-Happy to build out any of these — the backend swap and the signed-token
-change are the two I'd prioritize first since the notification and
-multi-device features both depend on them.
+Happy to build out Supabase Auth for the staff pages next — that's the
+one I'd prioritize given names and phone numbers are now shared across
+every visitor to `/admin`.

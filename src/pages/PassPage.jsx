@@ -5,19 +5,47 @@ import { getReservation } from '../utils/store.js'
 
 export default function PassPage() {
   const { id } = useParams()
-  const [reservation, setReservation] = useState(() => getReservation(id))
+  const [reservation, setReservation] = useState(null)
+  const [loading, setLoading] = useState(true)
 
-  // Re-read from storage in case another tab (the scanner) updated the status.
   useEffect(() => {
-    const t = setInterval(() => setReservation(getReservation(id)), 1500)
-    return () => clearInterval(t)
+    let cancelled = false
+
+    async function load() {
+      try {
+        const r = await getReservation(id)
+        if (!cancelled) {
+          setReservation(r)
+          setLoading(false)
+        }
+      } catch {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    load()
+    // Poll for status changes (e.g. staff scanning this pass on another
+    // device) — a Supabase realtime subscription would replace this.
+    const t = setInterval(load, 3000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
   }, [id])
+
+  if (loading) {
+    return (
+      <div className="card">
+        <p className="muted">Loading your pass…</p>
+      </div>
+    )
+  }
 
   if (!reservation) {
     return (
       <div className="card">
         <h2>Pass not found</h2>
-        <p className="muted">This reservation doesn&apos;t exist on this device.</p>
+        <p className="muted">We couldn&apos;t find a reservation with that ID.</p>
         <Link to="/" className="btn secondary">Book a new slot</Link>
       </div>
     )

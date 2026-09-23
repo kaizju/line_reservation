@@ -1,102 +1,73 @@
-// Simple localStorage-backed reservation store.
-// In production this should be swapped for a real backend (see README),
-// but this keeps the app fully functional as a static Vercel deployment.
+// Reservation data layer, backed by Supabase.
+// Every function here calls a SECURITY DEFINER Postgres function (see
+// supabase/schema.sql) rather than touching the `reservations` table
+// directly — the table itself has RLS on with zero policies, so this is
+// the only path in or out.
 
-const KEY = 'id-reserve.reservations.v1'
-const COUNTER_KEY = 'id-reserve.queue-counter.v1'
+import { supabase } from '../lib/supabaseClient.js'
 
-function readAll() {
-  try {
-    const raw = localStorage.getItem(KEY)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
+export async function createReservation(data) {
+  const { data: row, error } = await supabase.rpc('create_reservation', {
+    p_full_name: data.fullName,
+    p_contact_number: data.contactNumber,
+    p_email: data.email || null,
+    p_id_type: data.idType,
+    p_purpose: data.purpose,
+    p_preferred_date: data.preferredDate,
+    p_preferred_time: data.preferredTime,
+  })
+  if (error) throw error
+  return toClientShape(row)
+}
+
+export async function getReservation(id) {
+  const { data: row, error } = await supabase.rpc('get_reservation', { p_id: id })
+  if (error) throw error
+  return row ? toClientShape(row) : null
+}
+
+export async function listReservations() {
+  const { data: rows, error } = await supabase.rpc('list_today_reservations')
+  if (error) throw error
+  return (rows || []).map(toClientShape)
+}
+
+export async function checkInPass(id, token) {
+  // check_in_reservation is a TABLE-returning function, so supabase-js
+  // gives back an array (empty if the id/token pair didn't match).
+  const { data: rows, error } = await supabase.rpc('check_in_reservation', {
+    p_id: id,
+    p_token: token,
+  })
+  if (error) throw error
+  const row = rows && rows[0]
+  if (!row) return null
+  return { ...toClientShape(row), alreadyCheckedIn: row.already_checked_in }
+}
+
+export async function markDone(id) {
+  const { data: row, error } = await supabase.rpc('mark_reservation_done', { p_id: id })
+  if (error) throw error
+  return row ? toClientShape(row) : null
+}
+
+// The RPC functions return Postgres's snake_case column names; the rest of
+// the app was written against camelCase, so this is the one place that maps
+// between them.
+function toClientShape(row) {
+  if (!row) return null
+  return {
+    id: row.id,
+    token: row.token,
+    fullName: row.full_name,
+    contactNumber: row.contact_number,
+    email: row.email,
+    idType: row.id_type,
+    purpose: row.purpose,
+    preferredDate: row.preferred_date,
+    preferredTime: row.preferred_time,
+    status: row.status,
+    createdAt: row.created_at,
+    scannedAt: row.scanned_at,
   }
-}
-
-function writeAll(list) {
-  localStorage.setItem(KEY, JSON.stringify(list))
-}
-
-function readCounter() {
-  try {
-    return JSON.parse(localStorage.getItem(COUNTER_KEY)) || {}
-  } catch {
-    return {}
-  }
-}
-
-function nextQueueNumber() {
-  const today = new Date().toISOString().slice(0, 10)
-  const counter = readCounter()
-  const n = (counter[today] || 0) + 1
-  counter[today] = n
-  localStorage.setItem(COUNTER_KEY, JSON.stringify(counter))
-  return `${today.replace(/-/g, '')}-${String(n).padStart(3, '0')}`
-}
-
-// Lightweight non-cryptographic token so a scanned QR can be sanity-checked
-// without a backend round trip. This is NOT secure against a determined
-// forger — see README "What to add next" for a real signed-token approach.
-function makeToken(id) {
-  let hash = 0
-  for (let i = 0; i < id.length; i++) {
-    hash = (hash * 31 + id.charCodeAt(i)) >>> 0
-  }
-  return hash.toString(36)
-}
-
-export function createReservation(data) {
-  const list = readAll()
-  const id = nextQueueNumber()
-  const reservation = {
-    id,
-    token: makeToken(id),
-    fullName: data.fullName,
-    contactNumber: data.contactNumber,
-    email: data.email,
-    idType: data.idType,
-    purpose: data.purpose,
-    preferredDate: data.preferredDate,
-    preferredTime: data.preferredTime,
-    status: 'pending', // pending -> checked-in -> done  (or cancelled)
-    createdAt: new Date().toISOString(),
-    scannedAt: null,
-  }
-  list.push(reservation)
-  writeAll(list)
-  return reservation
-}
-
-export function getReservation(id) {
-  return readAll().find((r) => r.id === id) || null
-}
-
-export function verifyToken(id, token) {
-  return makeToken(id) === token
-}
-
-export function listReservations() {
-  return readAll().sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
-}
-
-export function markCheckedIn(id) {
-  const list = readAll()
-  const idx = list.findIndex((r) => r.id === id)
-  if (idx === -1) return null
-  if (list[idx].status === 'pending') {
-    list[idx].status = 'checked-in'
-    list[idx].scannedAt = new Date().toISOString()
-  }
-  writeAll(list)
-  return list[idx]
-}
-
-export function markDone(id) {
-  const list = readAll()
-  const idx = list.findIndex((r) => r.id === id)
-  if (idx === -1) return null
-  list[idx].status = 'done'
-  writeAll(list)
-  return list[idx]
 }

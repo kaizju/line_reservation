@@ -40,19 +40,28 @@ export default function ReservationForm() {
     preferredTime: TIME_SLOTS[0],
   })
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   function update(field) {
     return (e) => setForm((f) => ({ ...f, [field]: e.target.value }))
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault()
     if (!form.fullName.trim() || !form.contactNumber.trim()) {
       setError('Full name and contact number are required.')
       return
     }
-    const reservation = createReservation(form)
-    navigate(`/pass/${reservation.id}`)
+    setError('')
+    setSubmitting(true)
+    try {
+      const reservation = await createReservation(form)
+      navigate(`/pass/${reservation.id}`)
+    } catch (err) {
+      setError(err.message || 'Something went wrong — please try again.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -128,7 +137,9 @@ export default function ReservationForm() {
 
         {error && <p style={{ color: 'var(--danger)', marginBottom: 12 }}>{error}</p>}
 
-        <button type="submit" className="btn">Reserve my slot</button>
+        <button type="submit" className="btn" disabled={submitting}>
+          {submitting ? 'Reserving…' : 'Reserve my slot'}
+        </button>
       </form>
     </div>
   )

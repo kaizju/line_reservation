@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Html5Qrcode } from 'html5-qrcode'
-import { getReservation, markCheckedIn, verifyToken } from '../utils/store.js'
+import { checkInPass } from '../utils/store.js'
 import { sendConfirmationNotification } from '../utils/notify.js'
 
 const SCANNER_ID = 'scanner-view'
@@ -39,23 +39,33 @@ export default function ScannerPage() {
       return
     }
 
-    const reservation = getReservation(payload.id)
-    if (!reservation || !verifyToken(payload.id, payload.token)) {
+    let updated
+    try {
+      // The database verifies id + token together and only flips a
+      // pending pass to checked-in — see check_in_reservation() in
+      // supabase/schema.sql. A null result means no match was found.
+      updated = await checkInPass(payload.id, payload.token)
+    } catch {
+      setResult({ ok: false, message: 'Could not reach the database — try again.' })
+      resumeAfterDelay()
+      return
+    }
+
+    if (!updated) {
       setResult({ ok: false, message: 'Invalid or unrecognized pass.' })
       resumeAfterDelay()
       return
     }
-    if (reservation.status !== 'pending') {
+    if (updated.alreadyCheckedIn) {
       setResult({
         ok: false,
-        message: `Queue #${reservation.id} was already checked in.`,
-        reservation,
+        message: `Queue #${updated.id} was already checked in.`,
+        reservation: updated,
       })
       resumeAfterDelay()
       return
     }
 
-    const updated = markCheckedIn(reservation.id)
     const notif = await sendConfirmationNotification(updated)
     setResult({ ok: true, reservation: updated })
     setToast(
