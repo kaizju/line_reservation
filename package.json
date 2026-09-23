@@ -1,7 +1,7 @@
 {
-  "name": "line_reservation",
+  "name": "id-reserve",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -11,7 +11,10 @@
   },
   "dependencies": {
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.1.1",
+    "react-qr-code": "^2.0.15",
+    "html5-qrcode": "^2.3.8"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
