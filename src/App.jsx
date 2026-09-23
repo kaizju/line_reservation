@@ -3,9 +3,35 @@ import ReservationForm from './pages/ReservationForm.jsx'
 import PassPage from './pages/PassPage.jsx'
 import ScannerPage from './pages/ScannerPage.jsx'
 import AdminPage from './pages/AdminPage.jsx'
+import { supabaseConfigured } from './lib/supabaseClient.js'
 import './App.css'
 
 function App() {
+  if (!supabaseConfigured) {
+    return (
+      <div className="card" style={{ marginTop: 40 }}>
+        <h2>Supabase isn&apos;t configured yet</h2>
+        <p className="muted">
+          This app needs two environment variables to talk to your database:
+        </p>
+        <ul>
+          <li><code>VITE_SUPABASE_URL</code></li>
+          <li><code>VITE_SUPABASE_ANON_KEY</code></li>
+        </ul>
+        <p className="muted">
+          <strong>Running locally?</strong> Copy <code>.env.example</code> to{' '}
+          <code>.env.local</code>, paste in the values from your Supabase
+          project&apos;s Settings → API page, then restart <code>npm run dev</code>.
+        </p>
+        <p className="muted">
+          <strong>Deployed on Vercel?</strong> Add both variables under your
+          project&apos;s Settings → Environment Variables, then redeploy —
+          Vercel only picks up new env vars on the next build.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <>
       <header>
